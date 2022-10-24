@@ -1,0 +1,54 @@
+---
+- hosts: localhost
+  become: yes
+  vars:
+    username: "testjb"
+    password: "remoteTest"
+
+    # This is necessary for the `become` as a non-privileged user
+    # https://github.com/ansible/ansible/issues/72264#issuecomment-783965738
+    ansible_shell_allow_world_readable_temp: true
+  tasks:
+    - name: Add apt key for Corretto
+      apt_key:
+        url: https://apt.corretto.aws/corretto.key
+        state: present
+
+    - name: Add apt repository for Corretto
+      apt_repository:
+        repo: deb https://apt.corretto.aws stable main
+
+    - name: Install Tools
+      apt:
+        name:
+          - java-11-amazon-corretto-jdk
+          - fail2ban
+        update_cache: yes
+
+    - name: Create user
+      user:
+        name: "{{ username }}"
+        shell: "/bin/bash"
+        password: "{{ password | password_hash('sha512') }}"
+        create_home: yes
+
+    - name: Clone petclinic
+      become: yes
+      become_user: "{{ username }}"
+      git:
+        repo: https://github.com/ErnstHaagsman/spring-petclinic.git
+        dest: "/home/{{ username }}/petclinic"
+
+    - name: Run mvn install for petclinic
+      become: yes
+      become_user: "{{ username }}"
+      shell:
+        cmd: "./mvnw install"
+        chdir: "/home/{{ username }}/petclinic"
+
+    - name: Ensure PasswordAuthentication is enabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PasswordAuthentication"
+        line: "PasswordAuthentication yes"
+        state: present
